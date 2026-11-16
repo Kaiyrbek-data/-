@@ -41,9 +41,6 @@ Streamlit позволяет редактировать все входные п
 
 ```powershell
 python main.py all
-python scripts/build_notebooks.py
-python scripts/execute_notebooks.py
-python -m unittest discover -s tests -v
 ```
 
 `all` импортирует SQLite, создаёт Parquet, выполняет SQL и EDA, подбирает модели, калибрует их, выбирает пороги и оценивает test. Этапы печатаются в терминале. Время зависит от компьютера.
@@ -56,7 +53,7 @@ python -m unittest discover -s tests -v
 
 Повторный запуск обучения заменяет текущие отчётные таблицы и артефакты.
 SQLite сохраняет накопительную историю experiments/predictions по run_id.
-Исходный ZIP не меняется. Сборка ноутбуков очищает outputs, выполнение возвращает их.
+Исходный ZIP не меняется.
 Перед выполнением ноутбуков на чистом клоне запустите `python main.py prepare`.
 
 ## Постановка и защита от утечки
@@ -104,7 +101,7 @@ with closing(connect()) as connection:
 print(result)
 ```
 
-ER-диаграмма: reports/figures/er_diagram.png; текстовая схема: docs/schema.md. Прежний database.py подключается к тому же data/project.sqlite3. Не перезаписывайте таблицы с внешними ключами через if_exists='replace'.
+ER-диаграмма: reports/figures/er_diagram.png; текстовая схема: docs/schema.md. Не перезаписывайте таблицы с внешними ключами через if_exists='replace'.
 
 ## Структура проекта
 
@@ -122,9 +119,8 @@ src/pipeline.py         автоматическая подготовка раб
 src/terminal.py         русское меню и команды запуска
 src/search.py           параметризованный поиск только для чтения
 src/benchmarks.py       сравнение форматов и одинакового GROUP BY
+src/finalize.py         проверка порога и итоговые графики после обучения
 sql/analysis.sql        12 запросов
-tests/                  проверки утечки и интеграции
-scripts/                сборка/выполнение ноутбуков и PDF-отчёта
 data/                   SQLite, Parquet и манифесты
 artifacts/              модели, гиперпараметры и схема ввода
 reports/                PDF, таблицы, графики, подробные выводы
@@ -137,12 +133,6 @@ EDA.ipynb, SQL_analysis.ipynb и Model_results.ipynb содержат выпол
 ## Отчёт и презентация
 
 reports/Project_report.pdf — письменный отчёт. reports/Defense_slides.pdf — презентация. Редактируемая версия презентации сохранена также в Spaces.
-
-Существующие `docs/presentation.pptx` и `docs/presentation.pdf` сохранены из предыдущей
-версии репозитория. Они не пересобирались при объединении; актуальные результаты
-общей версии находятся в `reports/` и трёх ноутбуках в корне.
-
-Пересборка отчёта: `python -m pip install -r requirements-docs.txt`, затем `python scripts/build_report.py`. Используется Arial Windows либо DejaVu Sans на Linux.
 
 ## Источник и ограничения
 

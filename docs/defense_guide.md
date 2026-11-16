@@ -7,7 +7,7 @@
 3. Открыть ER-диаграмму и sql/analysis.sql. Показать JOIN, CTE, оконный запрос и пустой результат проверки утечки.
 4. В Model_results.ipynb показать выбор модели по validation, итоговый test и различие AP/F1/ROC-AUC.
 5. Запустить `python -m streamlit run app.py`, изменить признаки и получить вероятность.
-6. Показать `python -m unittest discover -s tests -v` и сохранённый joblib.
+6. Показать сохранённый joblib: `python main.py predict --input examples/patient.json`.
 
 Готовая модель уже обучена. Не запускайте полный параметрический поиск во время короткой защиты.
 
