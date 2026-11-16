@@ -1,194 +1,169 @@
-"""Консольное меню проекта: поиск по базе, SQL-запросы, обучение моделей и прогноз."""
+"""Русское меню, команды воспроизведения и поиск по SQLite."""
+import argparse
+import json
 import sqlite3
-from datetime import datetime
-
+from pathlib import Path
 import pandas as pd
+from .config import TABLES
+from .pipeline import prepare_data, ensure_data_ready
 
-from src import config, database
+MENU = '''
+========== Госпитализации пациентов с диабетом ==========
+1 — Подготовить данные и базу заново
+2 — Выполнить SQL-запросы
+3 — Анализ данных: построить графики
+4 — Обучить и сравнить модели
+5 — Прогноз для одного пациента
+6 — Сравнить CSV / Parquet и Pandas / SQL
+7 — Поиск госпитализаций в базе
+8 — Показать результаты моделей
+0 — Выход'''
 
-QUERY_LABELS = ['По основному диагнозу', 'По возрасту', 'По прошлым госпитализациям',
-                'По типу выписки', 'По инсулину', 'Отделения выше среднего',
-                '10 пациентов с наибольшим числом визитов', 'По номеру визита']
-DIAGNOSES = ['Circulatory', 'Respiratory', 'Digestive', 'Diabetes', 'Injury',
-             'Musculoskeletal', 'Genitourinary', 'Neoplasms', 'Other']
-DIAGNOSIS_LABELS = ['Болезни системы кровообращения', 'Болезни органов дыхания',
-                    'Болезни органов пищеварения', 'Диабет', 'Травмы',
-                    'Болезни костно-мышечной системы', 'Болезни мочеполовой системы',
-                    'Новообразования', 'Прочие']
+
+def print_table(frame):
+    """Показать таблицу без индекса или сообщение об отсутствии строк."""
+    print(frame.to_string(index=False) if not frame.empty else 'Совпадений не найдено.')
 
 
-def _integer(prompt, minimum=0, maximum=None, default=None):
-    """Запрашивать целое число до корректного ввода; Enter возвращает значение по умолчанию."""
+def ask_integer(prompt, default=None, minimum=0, maximum=None):
+    """Повторять ввод до корректного целого числа; Enter возвращает значение по умолчанию."""
     while True:
-        raw = input(prompt).strip()
-        if not raw:
+        value = input(prompt).strip()
+        if not value:
             return default
         try:
-            value = int(raw)
-            if value < minimum or (maximum is not None and value > maximum):
+            number = int(value)
+            if number < minimum or (maximum is not None and number > maximum):
                 raise ValueError
-            return value
+            return number
         except ValueError:
-            print('Введите целое число в указанном диапазоне или нажмите Enter.')
+            print('Введите целое число в допустимом диапазоне или нажмите Enter.')
 
 
-def _choose(prompt, options):
-    """Выбрать значение по номеру, оставляя фильтр пустым при Enter."""
-    for number, label in enumerate(options, 1):
-        print(f' {number} — {label}')
-    choice = _integer(prompt, 1, len(options))
-    return options[choice - 1] if choice is not None else None
-
-
-def _ready():
-    """Создать базу при первом обращении и повторно использовать её при следующих запусках."""
-    if not config.DB_PATH.exists():
-        print('Создаю базу из data/*.csv. Это требуется только при первом запуске...')
-        counts = database.prepare_database()
-        print(f'Готово: {counts["encounters"]:,} госпитализаций, {counts["patients"]:,} пациентов.')
-
-
-def _search():
-    """Запросить простые фильтры поиска; пустой ответ означает любое значение."""
-    print('Enter — пропустить фильтр. Номера пациентов можно взять из первых строк без фильтров.')
-    patient = _integer('Номер пациента: ')
-    encounter = _integer('Номер госпитализации: ')
-    ages = [f'[{start}-{start + 10})' for start in range(0, 100, 10)]
-    age = _choose('Номер возрастной группы: ', ages)
-    gender = _choose('Номер пола (Female — женский, Male — мужской): ', ['Female', 'Male'])
-    print('Группы основного диагноза:')
-    label = _choose('Номер группы: ', DIAGNOSIS_LABELS)
-    diagnosis = DIAGNOSES[DIAGNOSIS_LABELS.index(label)] if label is not None else None
-    target = _integer('Возврат в течение 30 дней: 1 — да, 0 — нет, Enter — любой: ', 0, 1)
-    limit = _integer('Сколько строк показать (1–100, Enter = 20): ', 1, 100, 20)
-    return database.search_encounters(patient, encounter, age, gender, diagnosis, target, limit)
-
-
-def _query():
-    """Выбрать и выполнить один из восьми запросов проекта."""
-    queries = database.load_queries()
+def sql_menu():
+    """Выполнить выбранный запрос или все запросы с сохранением результатов."""
+    from .database import load_sql_queries, run_sql_analysis
+    from .search import read_query
+    ensure_data_ready()
+    queries = load_sql_queries()
     names = list(queries)
     for number, name in enumerate(names, 1):
-        print(f' {number} — {QUERY_LABELS[number - 1]} ({name})')
-    choice = _integer('Номер запроса (Enter — назад): ', 1, len(names))
-    return database.run_query(queries[names[choice - 1]]) if choice else None
-
-
-def _train():
-    """Обучить и сравнить модели: быстрый режим для показа или полный с сохранением."""
-    # Импорт внутри функции: поиск по базе работает и без библиотек машинного обучения.
-    from src import data_loader, models, preprocessing
-    print(' 1 — Быстрое обучение (~30 секунд, модель не сохраняется)\n'
-          ' 2 — Полное обучение с подбором параметров (~5 минут, модель сохраняется)')
-    mode = _integer('Режим (Enter = 1): ', 1, 2, 1)
-    print('Обучаю модели, подождите...')
-    clean = preprocessing.clean(data_loader.load_raw())
-    full = mode == 2
-    table = models.train_and_compare(clean, tune_models=full, save=full)
-    if full:
-        print(f'Модель сохранена: {config.MODEL_PATH}')
-    return table.drop(columns='best_params')
-
-
-def _predict():
-    """Спросить признаки пациента и показать вероятность возврата в течение 30 дней."""
-    from src import models
-    bundle = models.load_model()   # нет файла модели -> FileNotFoundError с подсказкой
-    print('Enter — значение по умолчанию (типичный пациент).')
-    age = _integer('Возраст, лет (0–99, Enter = 65): ', 0, 99, 65)
-    patient = {
-        'age_num': age // 10 * 10 + 5,   # середина интервала, как при обучении: 67 -> 65
-        'time_in_hospital': _integer('Дней в больнице (1–14, Enter = 4): ', 1, 14, 4),
-        'num_lab_procedures': _integer('Лабораторных анализов (1–132, Enter = 43): ', 1, 132, 43),
-        'num_procedures': _integer('Других процедур (0–6, Enter = 1): ', 0, 6, 1),
-        'num_medications': _integer('Количество лекарств (1–81, Enter = 16): ', 1, 81, 16),
-        'number_outpatient': _integer('Амбулаторных визитов за год (Enter = 0): ', 0, 50, 0),
-        'number_emergency': _integer('Визитов в скорую за год (Enter = 0): ', 0, 80, 0),
-        'number_inpatient': _integer('Госпитализаций за год (Enter = 0): ', 0, 30, 0),
-        'number_diagnoses': _integer('Количество диагнозов (1–16, Enter = 7): ', 1, 16, 7),
-    }
-    patient['total_prior_visits'] = (patient['number_outpatient'] + patient['number_emergency']
-                                     + patient['number_inpatient'])
-    print('Группа основного диагноза (Enter = болезни системы кровообращения):')
-    label = _choose('Номер группы: ', DIAGNOSIS_LABELS)
-    if label is not None:
-        patient['diag_1_group'] = DIAGNOSES[DIAGNOSIS_LABELS.index(label)]
-    print('Инсулин (Enter = не назначен): No — нет, Steady — доза без изменений, '
-          'Up — доза повышена, Down — доза снижена')
-    insulin = _choose('Номер: ', ['No', 'Steady', 'Up', 'Down'])
-    if insulin is not None:
-        patient['insulin'] = insulin
-
-    result = models.predict_patient(patient, bundle)
-    risk = 'ВЫСОКИЙ' if result['high_risk'] else 'низкий'
-    print(f'\nВероятность повторной госпитализации в течение 30 дней: {result["probability"] * 100:.1f}%')
-    print(f'Риск: {risk} (порог {result["threshold"] * 100:.1f}%)')
-    print(f'Модель: {result["model"]}. Это учебный прогноз, а не медицинское заключение.')
-
-
-def _show(result):
-    """Показать результат с понятным сообщением при отсутствии совпадений."""
-    if result.empty:
-        print('По этим фильтрам ничего не найдено.')
+        print(f'{number} — {name}')
+    choice = input('Номер запроса; a — выполнить все; Enter — назад: ').strip().lower()
+    if not choice:
+        return
+    if choice == 'a':
+        print(f'Сохранено результатов: {len(run_sql_analysis())}. Папка reports/tables/.')
     else:
-        print(result.to_string(index=False))
-        print(f'Показано строк: {len(result)}')
+        index = int(choice)-1
+        if not 0 <= index < len(names):
+            raise ValueError('Такого номера запроса нет.')
+        sql = queries[names[index]]
+        print(sql)
+        print_table(read_query(sql))
 
 
-def main():
-    """Запустить меню и обработать ошибки ввода и отсутствующие файлы."""
-    last_result = None
+def search_menu():
+    """Найти госпитализации по простым фильтрам, пропуская необязательные поля."""
+    from .search import search_encounters
+    ensure_data_ready()
+    print('Поиск по исходным историческим данным. Enter пропускает любой фильтр.')
+    patient = ask_integer('Номер пациента: ')
+    age_start = ask_integer('Нижняя граница возраста (0, 10, ..., 90): ', maximum=90)
+    if age_start is not None and age_start % 10:
+        raise ValueError('Возрастная группа должна начинаться с 0, 10, ..., 90.')
+    age = f'[{age_start}-{age_start+10})' if age_start is not None else None
+    gender_choice = ask_integer('Пол: 1 — женский, 2 — мужской, Enter — любой: ', minimum=1, maximum=2)
+    gender = {1: 'Female', 2: 'Male'}.get(gender_choice)
+    target = ask_integer('Возврат <30 дней: 1 — да, 0 — нет, Enter — любой: ', maximum=1)
+    limit = ask_integer('Показать строк (1–100, Enter = 20): ', default=20, minimum=1, maximum=100)
+    print_table(search_encounters(patient_nbr=patient, age=age, gender=gender,
+                                  readmitted_30d=target, limit=limit))
+
+
+def train(quick=False, with_eda=False):
+    """Обучить модели на едином разбиении и обновить производные результаты."""
+    from .modeling import train_models
+    from scripts.finalize_analysis import finalize_analysis
+    train_models(prepare_data(with_eda), quick=quick)
+    finalize_analysis()
+
+
+def menu():
+    """Обрабатывать действия до выхода, возвращаясь в меню при ошибке или отмене."""
     while True:
-        print('\n=== База госпитализаций пациентов с диабетом ===\n'
-              '1 — Общая информация\n2 — Поиск госпитализаций\n'
-              '3 — Готовые SQL-запросы\n4 — Сохранить последний результат в CSV\n'
-              '5 — Пересоздать базу из исходных CSV\n'
-              '6 — Обучить и сравнить модели\n7 — Прогноз для одного пациента\n0 — Выход')
+        print(MENU)
         try:
             choice = input('Выберите пункт: ').strip()
             if choice == '0':
                 return
-            if choice not in {'1', '2', '3', '4', '5', '6', '7'}:
-                print('Нет такого пункта, попробуйте ещё раз.')
-                continue
-            if choice == '6':
-                last_result = _train()
-                _show(last_result)
-                continue
-            if choice == '7':
-                _predict()
-                continue
-            if choice == '4':
-                if last_result is None:
-                    print('Сначала выполните поиск или SQL-запрос.')
-                    continue
-                config.ensure_dirs()
-                folder = config.REPORTS_DIR / 'sql_results'
-                folder.mkdir(parents=True, exist_ok=True)
-                path = folder / f'search_{datetime.now():%Y%m%d_%H%M%S_%f}.csv'
-                last_result.to_csv(path, index=False, encoding='utf-8-sig')
-                print(f'Сохранено: {path}')
-                continue
-            if choice == '5':
-                print('Существующая локальная база будет заменена данными из CSV.')
-                if input('Введите ДА для продолжения: ').strip().upper() == 'ДА':
-                    print(database.prepare_database())
-                continue
-            _ready()
             if choice == '1':
-                result = database.run_query('''SELECT COUNT(*) AS encounters,
-                    COUNT(DISTINCT patient_nbr) AS patients,
-                    ROUND(AVG(readmit_30)*100, 1) AS readmit_pct FROM encounters''')
-                print('Госпитализации / пациенты / доля возвратов в течение 30 дней (%):')
-                print('Исключены выписки «умер/хоспис» и неизвестный пол. Это учебные исторические данные.')
+                prepare_data()
+            elif choice == '2':
+                sql_menu()
+            elif choice == '3':
+                prepare_data(with_eda=True)
+            elif choice == '4':
+                mode = input('1 — быстрый поиск; 2 — полный. Оба режима обновляют модели [1]: ').strip() or '1'
+                if mode not in {'1', '2'}:
+                    raise ValueError('Выберите 1 или 2.')
+                train(quick=mode == '1')
+            elif choice == '5':
+                from .inference import console_prediction
+                console_prediction()
+            elif choice == '6':
+                from .benchmarks import run_all
+                for name, frame in run_all().items():
+                    print(name)
+                    print_table(frame)
+            elif choice == '7':
+                search_menu()
+            elif choice == '8':
+                print_table(pd.read_csv(TABLES/'test_metrics.csv'))
             else:
-                result = _search() if choice == '2' else _query()
-            if result is not None:
-                last_result = result
-                _show(result)
+                print('Нет такого пункта. Выберите номер от 0 до 8.')
         except EOFError:
             return
         except KeyboardInterrupt:
-            print('\nОтменено. Возвращаюсь в меню.')
+            print('\nОтменено.')
         except (OSError, ValueError, KeyError, sqlite3.Error, pd.errors.DatabaseError) as error:
-            print(f'Не удалось выполнить действие: {error}')
+            print(f'Ошибка: {error}')
+
+
+def main():
+    """Запустить меню либо отдельную команду подготовки, обучения или прогноза."""
+    parser = argparse.ArgumentParser(description='Прогноз повторной госпитализации')
+    parser.add_argument('command', nargs='?', default='menu',
+                        choices=['menu','prepare','eda','train','all','predict','results','sql','search','benchmark'])
+    parser.add_argument('--quick', action='store_true', help='Уменьшить бюджет поиска моделей')
+    parser.add_argument('--input', type=Path, help='JSON с признаками пациента')
+    args = parser.parse_args()
+    try:
+        if args.command == 'menu':
+            menu()
+        elif args.command in {'prepare', 'eda'}:
+            prepare_data(with_eda=args.command == 'eda')
+        elif args.command in {'train', 'all'}:
+            train(args.quick, with_eda=args.command == 'all')
+        elif args.command == 'results':
+            print_table(pd.read_csv(TABLES/'test_metrics.csv'))
+        elif args.command == 'sql':
+            sql_menu()
+        elif args.command == 'search':
+            search_menu()
+        elif args.command == 'benchmark':
+            from .benchmarks import run_all
+            for name, frame in run_all().items():
+                print(name)
+                print_table(frame)
+        elif args.command == 'predict':
+            from .inference import predict_record, console_prediction
+            if args.input:
+                print(json.dumps(predict_record(json.loads(args.input.read_text(encoding='utf-8-sig'))),
+                                 ensure_ascii=False, indent=2))
+            else:
+                console_prediction()
+    except (EOFError, KeyboardInterrupt):
+        print('\nОтменено.')
+    except (OSError, ValueError, KeyError, sqlite3.Error, pd.errors.DatabaseError) as error:
+        parser.exit(1, f'Ошибка: {error}\n')

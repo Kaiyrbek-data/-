@@ -1,0 +1,20 @@
+{
+  "title": "Hospital Readmission Prediction for Diabetic Patients",
+  "authors": [
+    "Zhenissov Kaiyrbek",
+    "Bekarys"
+  ],
+  "contributions": null,
+  "contribution_status": "Awaiting the participants' actual contribution details",
+  "github_status": "Combined project published to Kaiyrbek-data/my-",
+  "dataset_size_exception": "Must be agreed with the instructor; no approval is claimed",
+  "presentation_page_id": "page_cd50f8abc8fc819189a448116cda7b23",
+  "report_pages": 27,
+  "defense_slides": 17,
+  "completed_local_implementation": true,
+  "trained_model": "LightGBM",
+  "pending_external_requirements": [
+    "Confirm actual individual contributions",
+    "Agree dataset-size exception with instructor"
+  ]
+}

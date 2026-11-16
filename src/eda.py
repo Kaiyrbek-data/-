@@ -1,176 +1,206 @@
-"""Исследовательский анализ данных (EDA): статистика, выбросы и графики (Часть 3)."""
+"""Full audit of 50 source columns, train-only associations and saved figures."""
+import json
+import textwrap
 import matplotlib
-
-matplotlib.use("Agg")  # рисуем сразу в файл, окно с графиком не нужно
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import FancyBboxPatch
+import numpy as np
 import pandas as pd
-import plotly.express as px
 import seaborn as sns
+from .config import *
+from .features import icd9_group
 
-from src import config, preprocessing
+sns.set_theme(style='whitegrid', palette=['#147D92','#F4A340','#6C7A89','#B6D8CE'])
+plt.rcParams.update({'figure.dpi': 110, 'savefig.dpi': 160, 'font.family': 'DejaVu Sans'})
 
-sns.set_theme(style="whitegrid")
+def save_figure(name):
+    plt.tight_layout()
+    plt.savefig(FIGURES / f'{name}.png', bbox_inches='tight')
+    plt.close()
 
-MAIN_COLOR = "#2a78d6"
-ACCENT_COLOR = "#d6492a"     # выделяем то, что важно для задачи (возврат < 30 дней)
-BOXPLOT_COLUMNS = ["time_in_hospital", "num_lab_procedures", "num_medications", "number_diagnoses"]
+def category_report(frame, column):
+    temp = frame.assign(category=frame[column].astype('string').fillna('Missing'))
+    report = temp.groupby('category', observed=True).agg(
+        encounters=(TARGET,'size'), patients=('patient_nbr','nunique'), positives=(TARGET,'sum'))
+    report['share_pct'] = 100*report.encounters/len(frame)
+    report['readmission_pct'] = 100*report.positives/report.encounters
+    return report.sort_values('encounters', ascending=False)
 
+def plot_category(frame, column, order=None):
+    report = category_report(frame, column)
+    report.to_csv(TABLES / f'feature_{column}.csv')
+    view = report.reindex(order).dropna(subset=['encounters']) if order else report.head(12)
+    fig, axes = plt.subplots(1,2,figsize=(13,4.8))
+    labels = ['\n'.join(textwrap.wrap(str(x), 22)) for x in view.index]
+    positions = np.arange(len(view))
+    axes[0].bar(positions,view.encounters,color='#147D92')
+    axes[1].bar(positions,view.readmission_pct.where(view.encounters>=100),color='#F4A340')
+    axes[1].axhline(frame[TARGET].mean()*100,linestyle='--',color='#283E51',label='Fit-set average')
+    for ax in axes:
+        ax.set_xticks(positions,labels,rotation=55,ha='right',fontsize=8)
+    axes[0].set(title=f'{column}: encounters',ylabel='Encounters')
+    axes[1].set(title='Readmission <30 days (groups n >= 100)',ylabel='Readmission, %')
+    axes[1].legend(fontsize=8)
+    fig.suptitle('Fit partition only; top 12 categories where applicable',fontsize=10)
+    save_figure(f'category_{column}')
+    return report
 
-def _save(fig, filename) -> str:
-    """Сохранить рисунок в папку графиков и закрыть его (иначе копится память)."""
-    config.ensure_dirs()
-    path = config.FIGURES_DIR / filename
-    fig.tight_layout()
-    fig.savefig(path, dpi=130)
-    plt.close(fig)
-    return str(path)
+def draw_er_diagram():
+    fig, ax = plt.subplots(figsize=(14,8.5))
+    ax.set(xlim=(0,14),ylim=(-.2,8.5)); ax.axis('off')
+    positions = {
+        'patients':(.3,5.6,2.6,1.25,'PK patient_nbr'),
+        'encounters':(4.3,4.2,3.4,2.35,'PK encounter_id\nFK patient_nbr\nFK admission_type_id\nFK discharge_disposition_id\nFK admission_source_id'),
+        'admission_types':(.3,3.55,2.6,1.2,'PK code\ndescription'),
+        'discharge_dispositions':(.3,1.65,2.9,1.2,'PK code\ndescription'),
+        'admission_sources':(4.3,.3,3.4,1.2,'PK code\ndescription'),
+        'diagnoses':(9.6,6.55,3.7,1.5,'PK FK encounter_id + position\nicd9, diagnosis_group'),
+        'encounter_medications':(9.6,4.1,3.7,1.6,'PK FK encounter_id + drug_id\nstatus (non-No only)'),
+        'drugs':(9.6,1.9,3.7,1.2,'PK drug_id\nname'),
+        'split_assignments':(4.3,6.85,3.4,1.1,'PK FK encounter_id\nsplit'),
+    }
+    for title,(x,y,w,h,body) in positions.items():
+        ax.add_patch(FancyBboxPatch((x,y),w,h,boxstyle='round,pad=0.07',facecolor='#EFF6F7',edgecolor='#147D92'))
+        ax.text(x+.12,y+h-.25,title,fontsize=10,fontweight='bold',va='top')
+        ax.text(x+.12,y+h-.63,body,fontsize=9,va='top',linespacing=1.5)
+    for start,end,label in [((2.9,6.1),(4.3,5.7),'1 : N'),((2.9,4.1),(4.3,4.8),'1 : N'),
+           ((3.2,2.2),(4.5,4.2),'1 : N'),((6,1.5),(6,4.2),'1 : N'),
+           ((7.7,6),(9.6,7.1),'1 : N'),((7.7,5),(9.6,4.9),'1 : N'),
+           ((11.5,3.1),(11.5,4.1),'1 : N'),((6,6.55),(6,6.85),'1 : 1')]:
+        ax.annotate('',xy=end,xytext=start,arrowprops=dict(arrowstyle='->',color='#64748B',lw=1.5))
+        ax.text((start[0]+end[0])/2,(start[1]+end[1])/2+.08,label,fontsize=9,color='#334155')
+    ax.text(.3,8.1,'SQLite relational schema',fontsize=22,fontweight='bold',color='#183547')
+    ax.text(.3,.03,'patients contains identifiers only; age and other encounter-varying attributes stay in encounters',fontsize=9)
+    save_figure('er_diagram')
 
+def run_eda(raw, mappings, parts):
+    ensure_directories()
+    fit = parts['fit'].copy()
+    profile = pd.DataFrame({'dtype':raw.dtypes.astype(str),'missing_count':raw.isna().sum(),
+                            'missing_pct':100*raw.isna().mean(),'unique':raw.nunique()})
+    profile['dominant_pct'] = [raw[c].value_counts(dropna=False,normalize=True).iloc[0]*100 for c in raw]
+    profile.to_csv(TABLES/'source_column_audit.csv')
+    raw.readmitted.value_counts().rename_axis('readmitted').to_frame('encounters').to_csv(TABLES/'raw_target.csv')
+    raw.readmitted.value_counts().reindex(['NO','>30','<30']).plot.bar(figsize=(7,4),color=['#147D92','#6C7A89','#F4A340'])
+    plt.ylabel('Encounters'); plt.title('Source target distribution'); plt.xticks(rotation=0)
+    save_figure('01_target_balance')
+    patient_counts = raw.groupby('patient_nbr').size()
+    patient_counts.value_counts().sort_index().rename_axis('encounters_per_patient').to_csv(TABLES/'patient_recurrence.csv')
+    patient_counts.value_counts().sort_index().plot.bar(figsize=(11,4),color='#147D92')
+    plt.xlabel('Encounters per patient'); plt.ylabel('Patients'); plt.title('Repeated patients in source data')
+    save_figure('02_patient_recurrence')
+    missing = fit.drop(columns=ID_COLS+['readmitted',TARGET]).isna()
+    for column,codes in SPECIAL_MISSING.items():
+        missing[column] |= fit[column].isin(codes)
+    mt = pd.DataFrame({'count':missing.sum(),'percent':missing.mean()*100}).sort_values('percent',ascending=False)
+    mt.to_csv(TABLES/'fit_missingness.csv')
+    mt.query('count>0')['percent'].sort_values().plot.barh(figsize=(9,5),color='#147D92')
+    plt.xlabel('Unknown values, %'); plt.title('Formal and coded missing values on fit')
+    save_figure('03_missing_values')
+    by_target = missing.groupby(fit[TARGET]).mean().T*100
+    by_target.to_csv(TABLES/'missingness_by_target.csv')
+    varying = missing.columns[(missing.mean()>0)&(missing.mean()<1)]
+    plt.figure(figsize=(10,7)); sns.heatmap(missing[varying].corr(),annot=True,fmt='.2f',cmap='coolwarm',vmin=-1,vmax=1)
+    plt.title('Co-occurrence of unknown values on fit'); save_figure('04_missingness_correlation')
+    num = fit[NUM_COLS]
+    desc = num.describe(percentiles=[.01,.25,.5,.75,.95,.99]).T
+    desc['zero_pct'] = num.eq(0).mean()*100
+    desc.to_csv(TABLES/'numeric_descriptive.csv')
+    fit.groupby(TARGET)[NUM_COLS].agg(['mean','median','std']).T.to_csv(TABLES/'numeric_by_target.csv')
+    q1,q3 = num.quantile(.25),num.quantile(.75); iqr=q3-q1
+    outside=(num.lt(q1-1.5*iqr)|num.gt(q3+1.5*iqr))
+    outliers=pd.DataFrame({'q1':q1,'q3':q3,'iqr':iqr,'outside_pct':outside.mean()*100,'maximum':num.max(),
+                           'note':np.where(iqr.eq(0),'IQR=0; do not auto-delete','Diagnostic only')})
+    outliers.to_csv(TABLES/'outlier_diagnostics.csv')
+    fig,axes=plt.subplots(4,2,figsize=(13,14))
+    for c,ax in zip(NUM_COLS,axes.ravel()):
+        sns.histplot(data=fit,x=c,bins=30,ax=ax,color='#147D92'); ax.set_title(c)
+    save_figure('05_numeric_distributions')
+    fig,axes=plt.subplots(4,2,figsize=(13,14))
+    for c,ax in zip(NUM_COLS,axes.ravel()):
+        sns.boxplot(data=fit,x=TARGET,y=c,showfliers=False,ax=ax); ax.set_title(c)
+    save_figure('06_numeric_by_target')
+    corr=fit[NUM_COLS].corr(method='spearman'); corr.to_csv(TABLES/'spearman.csv')
+    plt.figure(figsize=(10,7)); sns.heatmap(corr,annot=True,fmt='.2f',cmap='coolwarm',vmin=-1,vmax=1)
+    plt.title('Spearman correlations on fit'); save_figure('07_spearman')
+    fit[NUM_COLS+[TARGET]].corr(method='spearman')[TARGET].drop(TARGET).sort_values().to_csv(TABLES/'target_spearman.csv')
+    for c in ['race','gender','age','weight','payer_code','medical_specialty','A1Cresult','max_glu_serum','change','diabetesMed']:
+        plot_category(fit,c,AGE_ORDER if c=='age' else None)
+    for c in CODE_COLS:
+        report=category_report(fit,c)
+        report['description']=[mappings[c].get(str(x),'Unmapped') for x in report.index]
+        report.to_csv(TABLES/f'feature_{c}.csv')
+        fit[c+'_label']=fit[c].map(lambda x:f'{x}: {mappings[c].get(str(x),"Unknown")}')
+        plot_category(fit,c+'_label')
+    for c in DIAG_COLS:
+        fit[c].fillna('Missing').value_counts().to_csv(TABLES/f'raw_{c}_counts.csv')
+        fit[c+'_group']=fit[c].map(icd9_group)
+        plot_category(fit,c+'_group')
+    medication=pd.DataFrame({c:fit[c].fillna('Missing').value_counts() for c in DRUG_COLS}).T.fillna(0).astype(float)
+    medication=medication.reindex(columns=['No','Steady','Up','Down','Missing'],fill_value=0)
+    medication.to_csv(TABLES/'medication_counts.csv')
+    pct=medication/len(fit)*100; pct.to_csv(TABLES/'medication_percent.csv')
+    plt.figure(figsize=(9,11)); sns.heatmap(pct,annot=True,fmt='.2f',cmap='Blues')
+    plt.title('Medication states on fit, %'); save_figure('08_medication_states')
+    pd.concat({c:category_report(fit,c) for c in DRUG_COLS},names=['drug','status']).to_csv(TABLES/'medication_target_rates.csv')
+    for c in ['number_outpatient','number_emergency','number_inpatient']:
+        fit[c+'_band']=pd.cut(fit[c],[-np.inf,0,1,2,np.inf],labels=['0','1','2','3+']).astype('string')
+        plot_category(fit,c+'_band',['0','1','2','3+'])
+    constants=profile.index[profile['unique'].eq(1)].tolist()
+    facts={'raw_rows':len(raw),'columns':len(raw.columns),'patients':raw.patient_nbr.nunique(),
+           'duplicates':int(raw.duplicated().sum()),'duplicate_encounter_ids':int(raw.encounter_id.duplicated().sum()),
+           'repeated_patients':int(patient_counts.gt(1).sum()),'max_encounters_per_patient':int(patient_counts.max()),
+           'raw_positive_count':int(raw.readmitted.eq('<30').sum()),'raw_positive_rate':float(raw.readmitted.eq('<30').mean()),
+           'source_constants':constants,'fit_rows':len(fit),'fit_positive_rate':float(fit[TARGET].mean()),
+           'fit_out_of_range_length_of_stay':int((~fit.time_in_hospital.between(1,14)).sum())}
+    (REPORTS/'eda_facts.json').write_text(json.dumps(facts,ensure_ascii=False,indent=2),encoding='utf-8')
+    draw_er_diagram()
+    write_feature_conclusions(raw,profile)
+    return facts
 
-def _numeric_columns(df) -> list:
-    """Числовые признаки, которые есть в таблице."""
-    return preprocessing.get_feature_lists(df)[0]
-
-
-def describe_numeric(df) -> pd.DataFrame:
-    """Описательная статистика числовых признаков (среднее, медиана, квартили...)."""
-    summary = df[_numeric_columns(df)].describe().T.round(2)
-    summary.to_csv(config.REPORTS_DIR / "numeric_summary.csv", index_label="feature")
-    return summary
-
-
-def iqr_outliers(df) -> pd.DataFrame:
-    """Посчитать выбросы по правилу IQR: всё за пределами Q1 - 1.5*IQR и Q3 + 1.5*IQR."""
-    # Выбросы считаем, но НЕ удаляем: 10 госпитализаций за год — не ошибка ввода,
-    # а редкий, но реальный пациент. Именно такие чаще всего и возвращаются.
-    rows = []
-    for col in _numeric_columns(df):
-        q1, q3 = df[col].quantile(0.25), df[col].quantile(0.75)
-        iqr = q3 - q1
-        low, high = q1 - 1.5 * iqr, q3 + 1.5 * iqr
-        count = int(((df[col] < low) | (df[col] > high)).sum())
-        rows.append({
-            "feature": col, "q1": q1, "q3": q3, "lower_bound": low, "upper_bound": high,
-            "outliers": count, "outliers_pct": round(count / len(df) * 100, 2),
-        })
-    table = pd.DataFrame(rows)
-    table.to_csv(config.REPORTS_DIR / "iqr_outliers.csv", index=False)
-    return table
-
-
-def plot_target(df) -> str:
-    """График 1: доли исходов NO / >30 / <30."""
-    share = df["readmitted"].astype(str).value_counts(normalize=True).reindex(["NO", ">30", "<30"]) * 100
-    labels = ["Не вернулся", "Вернулся позже 30 дней", "Вернулся раньше 30 дней"]
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    bars = ax.bar(labels, share.values, color=[MAIN_COLOR, MAIN_COLOR, ACCENT_COLOR])
-    ax.bar_label(bars, fmt="%.1f%%")
-    ax.set_xlabel("Исход после выписки")
-    ax.set_ylabel("Доля визитов, %")
-    ax.set_title("Распределение целевой переменной: классы несбалансированы")
-    return _save(fig, "01_target_distribution.png")
-
-
-def plot_rate_by_inpatient(df) -> str:
-    """График 2: процент возвратов по числу госпитализаций за прошлый год."""
-    visits = df["number_inpatient"].clip(upper=6)          # 6 и больше — одна группа «6+»
-    rate = df.groupby(visits)[preprocessing.TARGET].mean() * 100
-    labels = [str(value) if value < 6 else "6+" for value in rate.index]
-    average = df[preprocessing.TARGET].mean() * 100
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    bars = ax.bar(labels, rate.values, color=MAIN_COLOR)
-    ax.bar_label(bars, fmt="%.1f%%", fontsize=9)
-    ax.axhline(average, color=ACCENT_COLOR, linestyle="--", label=f"Среднее: {average:.1f}%")
-    ax.set_xlabel("Госпитализаций за прошлый год")
-    ax.set_ylabel("Вернулись раньше 30 дней, %")
-    ax.set_title("Чем больше прошлых госпитализаций, тем выше риск возврата")
-    ax.legend()
-    return _save(fig, "02_rate_by_prior_inpatient.png")
-
-
-def plot_rate_by_diagnosis(df) -> str:
-    """График 3: процент возвратов по группе основного диагноза."""
-    stats = df.groupby("diag_1_group", observed=True)[preprocessing.TARGET].agg(["mean", "count"])
-    stats = stats.sort_values("mean")
-    average = df[preprocessing.TARGET].mean() * 100
-    fig, ax = plt.subplots(figsize=(8, 5))
-    bars = ax.barh(stats.index.astype(str), stats["mean"] * 100, color=MAIN_COLOR)
-    ax.bar_label(bars, labels=[f"{m * 100:.1f}%  (n={n})" for m, n in zip(stats["mean"], stats["count"])],
-                 padding=3, fontsize=9)
-    ax.axvline(average, color=ACCENT_COLOR, linestyle="--", label=f"Среднее: {average:.1f}%")
-    ax.set_xlim(0, stats["mean"].max() * 100 * 1.35)
-    ax.set_xlabel("Вернулись раньше 30 дней, %")
-    ax.set_ylabel("Группа основного диагноза (ICD-9)")
-    ax.set_title("Доля возвратов по группе основного диагноза")
-    ax.legend(loc="lower right")
-    return _save(fig, "03_rate_by_primary_diagnosis.png")
-
-
-def plot_boxplots(df) -> str:
-    """График 4: boxplot четырёх числовых признаков отдельно для вернувшихся и нет."""
-    fig, axes = plt.subplots(1, 4, figsize=(14, 4.5))
-    for ax, col in zip(axes, BOXPLOT_COLUMNS):
-        sns.boxplot(data=df, x=preprocessing.TARGET, y=col, hue=preprocessing.TARGET,
-                    palette=[MAIN_COLOR, ACCENT_COLOR], legend=False, ax=ax)
-        ax.set_xlabel("Вернулся < 30 дней (0 = нет, 1 = да)")
-        ax.set_ylabel(col)
-    fig.suptitle("Распределение числовых признаков у вернувшихся и не вернувшихся")
-    return _save(fig, "04_boxplots_by_target.png")
-
-
-def plot_correlation(df) -> str:
-    """График 5: корреляция Спирмена между числовыми признаками и ответом."""
-    # Спирмен, а не Пирсон: счётчики визитов сильно скошены, а Спирмен работает
-    # с рангами и не чувствителен к выбросам.
-    corr = df[_numeric_columns(df) + [preprocessing.TARGET]].corr(method="spearman")
-    fig, ax = plt.subplots(figsize=(9, 7.5))
-    sns.heatmap(corr, annot=True, fmt=".2f", cmap="RdBu_r", center=0, vmin=-1, vmax=1,
-                annot_kws={"size": 8}, ax=ax)
-    ax.set_xlabel("Признак")
-    ax.set_ylabel("Признак")
-    ax.set_title("Корреляция Спирмена: числовые признаки и readmit_30")
-    return _save(fig, "05_correlation_heatmap.png")
-
-
-def plot_visits_per_patient(df) -> str:
-    """График 6: сколько визитов приходится на одного пациента."""
-    visits = df[preprocessing.GROUP].value_counts().clip(upper=10)   # 10 = «10 и больше»
-    counts = visits.value_counts().sort_index()
-    labels = [str(value) if value < 10 else "10+" for value in counts.index]
-    fig, ax = plt.subplots(figsize=(7, 4.5))
-    bars = ax.bar(labels, counts.values, color=MAIN_COLOR)
-    ax.bar_label(bars, fontsize=8)
-    ax.set_yscale("log")   # иначе столбец «1 визит» делает остальные невидимыми
-    ax.set_xlabel("Число визитов одного пациента")
-    ax.set_ylabel("Число пациентов (логарифмическая шкала)")
-    ax.set_title("У многих пациентов несколько визитов:\nделить на train/test нужно по пациентам")
-    return _save(fig, "06_visits_per_patient.png")
-
-
-def plot_interactive(df) -> str:
-    """График 7 (интерактивный, Plotly): процент возвратов по возрасту для каждой группы диагноза."""
-    stats = (df.groupby(["age", "diag_1_group"], observed=True)[preprocessing.TARGET]
-               .agg(readmit_pct="mean", visits="count").reset_index())
-    stats = stats[stats["visits"] >= 100]          # на малых группах процент слишком шумный
-    stats["readmit_pct"] = (stats["readmit_pct"] * 100).round(1)
-    stats["age"] = stats["age"].astype(str)
-    fig = px.line(
-        stats.sort_values("age"), x="age", y="readmit_pct", color="diag_1_group", markers=True,
-        hover_data=["visits"],
-        labels={"age": "Возраст", "readmit_pct": "Вернулись раньше 30 дней, %",
-                "diag_1_group": "Группа диагноза", "visits": "Визитов"},
-        title="Доля возвратов по возрасту и группе основного диагноза",
-    )
-    config.ensure_dirs()
-    path = config.FIGURES_DIR / "07_interactive_age_diagnosis.html"
-    fig.write_html(path, include_plotlyjs="cdn")
-    return str(path)
-
-
-def run_all(df) -> list[str]:
-    """Сохранить обе таблицы статистики и все 7 графиков; вернуть пути к графикам."""
-    config.ensure_dirs()
-    describe_numeric(df)
-    iqr_outliers(df)
-    plots = [plot_target, plot_rate_by_inpatient, plot_rate_by_diagnosis, plot_boxplots,
-             plot_correlation, plot_visits_per_patient, plot_interactive]
-    return [plot(df) for plot in plots]
+def write_feature_conclusions(raw,profile):
+    numeric=pd.read_csv(TABLES/'numeric_descriptive.csv',index_col=0)
+    outliers=pd.read_csv(TABLES/'outlier_diagnostics.csv',index_col=0)
+    drug_rates=pd.read_csv(TABLES/'medication_target_rates.csv')
+    lines=['# Подробные выводы EDA по всем исходным столбцам','',
+           'Единица наблюдения — госпитализация. Общий аудит относится к исходным данным; связи с целью рассчитаны только на fit.',
+           'Частоты не являются доказательством причинности. Исходные файлы и исходные записи не исправлялись автоматически.','']
+    for c in raw.columns:
+        p=profile.loc[c]
+        lines += [f'## {c}',f'- Тип: {p["dtype"]}; уникальных значений: {int(p["unique"])}.',
+                  f'- Пропуски: {int(p["missing_count"]):,} ({p["missing_pct"]:.2f}%).',
+                  f'- Доля наиболее частого значения: {p["dominant_pct"]:.2f}%.']
+        if c in ID_COLS:
+            decision='Технический идентификатор, исключён из входов модели.'
+            if c=='patient_nbr': decision+=' Используется для всех разбиений и групповой кросс-валидации; повторы не удаляются.'
+        elif c=='readmitted': decision='Цель: <30 → 1, >30 и NO → 0. Исходный столбец запрещён во входах модели.'
+        elif c=='weight': decision='96,86% пропусков. Исходные интервалы исключены из первой модели, используется индикатор наличия записи. Строки не удаляются.'
+        elif c in ['examide','citoglipton']: decision='Постоянный в источнике столбец, не несёт различий между наблюдениями; исключён по фиксированной спецификации.'
+        elif c in DIAG_COLS: decision='Коды ICD-9 сохраняются строками и внутри Pipeline объединяются в укрупнённые группы. V/E относятся к Other; пропуски отдельны.'
+        elif c in CODE_COLS: decision='Номинальный код со справочником IDS_mapping.csv. Не интерпретировать как число. Неизвестные коды нормализуются в Pipeline.'
+        elif c in ['A1Cresult','max_glu_serum']: decision='None — отдельное состояние отсутствия проведённого анализа, не обычный NaN. Категория сохраняется, добавляется индикатор измерения.'
+        elif c in NUM_COLS: decision='Количественный признак. Проверены квартили, нули, хвосты, IQR и связь с целью на fit. Экстремальные значения не удаляются автоматически. Медианная импутация и масштабирование обучаются внутри CV.'
+        elif c in DRUG_COLS: decision='Категории No/Steady/Up/Down. Частоты и доли <30 представлены в medication_target_rates.csv. Редкость не доказывает бесполезность; различия не являются эффектом лекарства.'
+        else: decision='Категориальный признак. Импутация отдельной категорией и One-Hot Encoding с объединением редких уровней обучаются только на тренировочных фолдах.'
+        if c in NUM_COLS:
+            n=numeric.loc[c]; o=outliers.loc[c]
+            lines += [f'- На fit: среднее {n["mean"]:.2f}, медиана {n["50%"]:.2f}, P99 {n["99%"]:.2f}, максимум {n["max"]:.0f}.',
+                      f'- Нулей {n["zero_pct"]:.2f}%; IQR {o["iqr"]:.2f}; за диагностическими границами IQR {o["outside_pct"]:.2f}%.']
+        else:
+            path=TABLES/f'feature_{c+"_group" if c in DIAG_COLS else c}.csv'
+            if c in DRUG_COLS:
+                rate_table=drug_rates[drug_rates['drug'].eq(c)].rename(columns={'status':'category'})
+            elif path.exists():
+                rate_table=pd.read_csv(path)
+            else:
+                rate_table=pd.DataFrame()
+            if len(rate_table):
+                first=rate_table.sort_values('encounters',ascending=False).iloc[0]
+                lines += [f'- На fit наиболее многочисленная категория {first["category"]}: {int(first["encounters"]):,} госпитализаций; доля <30 внутри неё {first["readmission_pct"]:.2f}%.']
+                stable=rate_table[rate_table['encounters'].ge(100)]
+                if len(stable)>1:
+                    low=stable.sort_values('readmission_pct').iloc[0]; high=stable.sort_values('readmission_pct').iloc[-1]
+                    lines += [f'- Среди категорий с n ≥ 100 наблюдаемые доли <30 на fit: от {low["readmission_pct"]:.2f}% ({low["category"]}) до {high["readmission_pct"]:.2f}% ({high["category"]}). Это описательное сравнение без утверждения значимости или причинности.']
+        lines += [f'**Решение:** {decision}','']
+    (REPORTS/'EDA_detailed_conclusions.md').write_text('\n'.join(lines),encoding='utf-8')

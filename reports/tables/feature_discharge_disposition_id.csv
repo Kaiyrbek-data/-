@@ -1,0 +1,22 @@
+category,encounters,patients,positives,share_pct,readmission_pct,description
+1,36192,28165,3402,60.58759521218716,9.399867374005305,Discharged to home
+3,8541,6645,1254,14.298150163220892,14.6821215314366,Discharged/transferred to SNF
+6,7693,6485,1010,12.878546915543652,13.128818406343429,Discharged/transferred to home with home health service
+18,2183,1688,251,3.654473926508747,11.497938616582685,NULL
+2,1296,1244,209,2.1695823219218213,16.126543209876544,Discharged/transferred to another short term hospital
+22,1177,1121,330,1.9703691303256048,28.037383177570092,Discharged/transferred to another rehab fac including rehab units of a hospital .
+5,709,673,148,1.1869088474093914,20.87447108603667,Discharged/transferred to another type of inpatient care institution
+25,610,549,53,1.0211768644848078,8.688524590163935,Not Mapped
+4,476,422,64,0.7968527663848665,13.445378151260504,Discharged/transferred to ICF
+7,352,324,51,0.5892692726207416,14.488636363636363,Left AMA
+23,257,238,18,0.43023353143048465,7.003891050583658,Discharged/transferred to a long term care hospital.
+28,80,73,27,0.13392483468653218,33.75,Discharged/transferred/referred to a psychiatric hospital of psychiatric distinct part unit of a hospital
+8,67,65,8,0.11216204904997071,11.940298507462687,Discharged/transferred to home under care of Home IV provider
+15,41,40,17,0.06863647777684774,41.46341463414634,Discharged/transferred within this institution to Medicare approved swing bed
+24,28,24,5,0.04687369214028626,17.857142857142858,Discharged/transferred to a nursing facility certified under Medicaid but not certified under Medicare.
+9,13,12,8,0.02176278563656148,61.53846153846154,Admitted as an inpatient to this hospital
+17,11,11,0,0.018414664769398174,0.0,Discharged/transferred/referred to this institution for outpatient services
+16,4,4,0,0.006696241734326609,0.0,Discharged/transferred/referred another institution for outpatient services
+27,3,3,0,0.005022181300744957,0.0,Discharged/transferred to a federal health care facility.
+10,1,1,0,0.0016740604335816524,0.0,Neonate discharged to another hospital for neonatal aftercare
+12,1,1,0,0.0016740604335816524,0.0,Still patient or expected to return for outpatient services

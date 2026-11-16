@@ -1,0 +1,18 @@
+{
+  "raw_rows": 101766,
+  "columns": 50,
+  "patients": 71518,
+  "duplicates": 0,
+  "duplicate_encounter_ids": 0,
+  "repeated_patients": 16773,
+  "max_encounters_per_patient": 40,
+  "raw_positive_count": 11357,
+  "raw_positive_rate": 0.11159915885462728,
+  "source_constants": [
+    "examide",
+    "citoglipton"
+  ],
+  "fit_rows": 59735,
+  "fit_positive_rate": 0.11475684272202226,
+  "fit_out_of_range_length_of_stay": 0
+}

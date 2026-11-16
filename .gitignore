@@ -1,27 +1,16 @@
-# Виртуальное окружение
+__pycache__/
+*.py[cod]
 .venv/
 venv/
-
-# Кэш Python
-__pycache__/
-*.pyc
-
-# Jupyter
 .ipynb_checkpoints/
-
-# Локальные настройки и секреты
-.env
-
-# Служебные файлы ОС и редакторов
-.DS_Store
-Thumbs.db
-.vscode/
-.idea/
-
-# Файлы, которые создаёт программа
-data/processed/
+.pytest_cache/
+_backup/
+work/
+release/
+data/
 logs/
-
-# Результаты запусков: графики, таблицы метрик, обученная модель
-reports/
-models/
+.env
+.env.*
+*.zip
+!diabetes+130-us+hospitals+for+years+1999-2008.zip
+reports/tables/false_negative_examples.csv

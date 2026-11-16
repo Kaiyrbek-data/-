@@ -1,30 +1,40 @@
-"""Пути и константы проекта. Все остальные модули берут пути только отсюда."""
+"""Paths and domain definitions. No dependency on the current directory."""
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = ROOT / "data"
-PROCESSED_DIR = DATA_DIR / "processed"
-MODELS_DIR = ROOT / "models"
-REPORTS_DIR = ROOT / "reports"
-FIGURES_DIR = REPORTS_DIR / "figures"
-LOGS_DIR = ROOT / "logs"
-SQL_DIR = ROOT / "sql"
+ROOT = Path(__file__).resolve().parents[1]
+ZIP_PATH = ROOT / 'diabetes+130-us+hospitals+for+years+1999-2008.zip'
+DATA = ROOT / 'data'
+REPORTS = ROOT / 'reports'
+FIGURES = REPORTS / 'figures'
+TABLES = REPORTS / 'tables'
+ARTIFACTS = ROOT / 'artifacts'
+DB_PATH = DATA / 'project.sqlite3'
+TARGET = 'readmitted_30d'
+SEED = 42
+AUTHORS = ['Zhenissov Kaiyrbek', 'Bekarys']
+ID_COLS = ['encounter_id', 'patient_nbr']
+NUM_COLS = ['time_in_hospital', 'num_lab_procedures', 'num_procedures',
+            'num_medications', 'number_outpatient', 'number_emergency',
+            'number_inpatient', 'number_diagnoses']
+CODE_COLS = ['admission_type_id', 'discharge_disposition_id', 'admission_source_id']
+DIAG_COLS = ['diag_1', 'diag_2', 'diag_3']
+DRUG_COLS = ['metformin', 'repaglinide', 'nateglinide', 'chlorpropamide',
+             'glimepiride', 'acetohexamide', 'glipizide', 'glyburide', 'tolbutamide',
+             'pioglitazone', 'rosiglitazone', 'acarbose', 'miglitol', 'troglitazone',
+             'tolazamide', 'examide', 'citoglipton', 'insulin', 'glyburide-metformin',
+             'glipizide-metformin', 'glimepiride-pioglitazone',
+             'metformin-rosiglitazone', 'metformin-pioglitazone']
+DEATH_CODES = ['11', '19', '20', '21']
+HOSPICE_CODES = ['13', '14']
+SPECIAL_MISSING = {
+    'gender': ['Unknown/Invalid'], 'admission_type_id': ['5', '6', '8'],
+    'discharge_disposition_id': ['18', '25', '26'],
+    'admission_source_id': ['9', '15', '17', '20', '21'],
+}
+# Fixed domain exclusions, not selected by looking at test results.
+DROP_FEATURES = ID_COLS + ['readmitted', TARGET, 'weight', 'examide', 'citoglipton']
+AGE_ORDER = [f'[{i}-{i+10})' for i in range(0, 100, 10)]
 
-RAW_CSV = DATA_DIR / "diabetic_data.csv"
-MAPPING_CSV = DATA_DIR / "IDS_mapping.csv"
-CLEAN_PARQUET = PROCESSED_DIR / "clean.parquet"
-DB_PATH = PROCESSED_DIR / "readmission.db"
-MODEL_PATH = MODELS_DIR / "best_model.joblib"
-AUDIT_JSON = REPORTS_DIR / "data_audit.json"
-METRICS_CSV = REPORTS_DIR / "metrics.csv"
-
-RANDOM_STATE = 42
-TEST_SIZE = 0.2                                   # доля ПАЦИЕНТОВ в тесте
-EXPIRED_OR_HOSPICE = [11, 13, 14, 19, 20, 21]     # discharge_disposition_id: умер / хоспис
-NEAR_CONSTANT_THRESHOLD = 0.9995                  # столбец бесполезен, если одно значение > 99.95%
-
-
-def ensure_dirs() -> None:
-    """Создать выходные папки, если их ещё нет."""
-    for folder in [PROCESSED_DIR, MODELS_DIR, FIGURES_DIR, LOGS_DIR]:
-        folder.mkdir(parents=True, exist_ok=True)
+def ensure_directories():
+    for path in [DATA, REPORTS, FIGURES, TABLES, ARTIFACTS]:
+        path.mkdir(parents=True, exist_ok=True)
