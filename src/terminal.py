@@ -1,4 +1,4 @@
-"""Простое меню поиска по базе госпитализаций."""
+"""Консольное меню проекта: поиск по базе, SQL-запросы, обучение моделей и прогноз."""
 import sqlite3
 from datetime import datetime
 
@@ -74,6 +74,58 @@ def _query():
     return database.run_query(queries[names[choice - 1]]) if choice else None
 
 
+def _train():
+    """Обучить и сравнить модели: быстрый режим для показа или полный с сохранением."""
+    # Импорт внутри функции: поиск по базе работает и без библиотек машинного обучения.
+    from src import data_loader, models, preprocessing
+    print(' 1 — Быстрое обучение (~30 секунд, модель не сохраняется)\n'
+          ' 2 — Полное обучение с подбором параметров (~5 минут, модель сохраняется)')
+    mode = _integer('Режим (Enter = 1): ', 1, 2, 1)
+    print('Обучаю модели, подождите...')
+    clean = preprocessing.clean(data_loader.load_raw())
+    full = mode == 2
+    table = models.train_and_compare(clean, tune_models=full, save=full)
+    if full:
+        print(f'Модель сохранена: {config.MODEL_PATH}')
+    return table.drop(columns='best_params')
+
+
+def _predict():
+    """Спросить признаки пациента и показать вероятность возврата в течение 30 дней."""
+    from src import models
+    bundle = models.load_model()   # нет файла модели -> FileNotFoundError с подсказкой
+    print('Enter — значение по умолчанию (типичный пациент).')
+    age = _integer('Возраст, лет (0–99, Enter = 65): ', 0, 99, 65)
+    patient = {
+        'age_num': age // 10 * 10 + 5,   # середина интервала, как при обучении: 67 -> 65
+        'time_in_hospital': _integer('Дней в больнице (1–14, Enter = 4): ', 1, 14, 4),
+        'num_lab_procedures': _integer('Лабораторных анализов (1–132, Enter = 43): ', 1, 132, 43),
+        'num_procedures': _integer('Других процедур (0–6, Enter = 1): ', 0, 6, 1),
+        'num_medications': _integer('Количество лекарств (1–81, Enter = 16): ', 1, 81, 16),
+        'number_outpatient': _integer('Амбулаторных визитов за год (Enter = 0): ', 0, 50, 0),
+        'number_emergency': _integer('Визитов в скорую за год (Enter = 0): ', 0, 80, 0),
+        'number_inpatient': _integer('Госпитализаций за год (Enter = 0): ', 0, 30, 0),
+        'number_diagnoses': _integer('Количество диагнозов (1–16, Enter = 7): ', 1, 16, 7),
+    }
+    patient['total_prior_visits'] = (patient['number_outpatient'] + patient['number_emergency']
+                                     + patient['number_inpatient'])
+    print('Группа основного диагноза (Enter = болезни системы кровообращения):')
+    label = _choose('Номер группы: ', DIAGNOSIS_LABELS)
+    if label is not None:
+        patient['diag_1_group'] = DIAGNOSES[DIAGNOSIS_LABELS.index(label)]
+    print('Инсулин (Enter = не назначен): No — нет, Steady — доза без изменений, '
+          'Up — доза повышена, Down — доза снижена')
+    insulin = _choose('Номер: ', ['No', 'Steady', 'Up', 'Down'])
+    if insulin is not None:
+        patient['insulin'] = insulin
+
+    result = models.predict_patient(patient, bundle)
+    risk = 'ВЫСОКИЙ' if result['high_risk'] else 'низкий'
+    print(f'\nВероятность повторной госпитализации в течение 30 дней: {result["probability"] * 100:.1f}%')
+    print(f'Риск: {risk} (порог {result["threshold"] * 100:.1f}%)')
+    print(f'Модель: {result["model"]}. Это учебный прогноз, а не медицинское заключение.')
+
+
 def _show(result):
     """Показать результат с понятным сообщением при отсутствии совпадений."""
     if result.empty:
@@ -90,13 +142,21 @@ def main():
         print('\n=== База госпитализаций пациентов с диабетом ===\n'
               '1 — Общая информация\n2 — Поиск госпитализаций\n'
               '3 — Готовые SQL-запросы\n4 — Сохранить последний результат в CSV\n'
-              '5 — Пересоздать базу из исходных CSV\n0 — Выход')
+              '5 — Пересоздать базу из исходных CSV\n'
+              '6 — Обучить и сравнить модели\n7 — Прогноз для одного пациента\n0 — Выход')
         try:
             choice = input('Выберите пункт: ').strip()
             if choice == '0':
                 return
-            if choice not in {'1', '2', '3', '4', '5'}:
+            if choice not in {'1', '2', '3', '4', '5', '6', '7'}:
                 print('Нет такого пункта, попробуйте ещё раз.')
+                continue
+            if choice == '6':
+                last_result = _train()
+                _show(last_result)
+                continue
+            if choice == '7':
+                _predict()
                 continue
             if choice == '4':
                 if last_result is None:
