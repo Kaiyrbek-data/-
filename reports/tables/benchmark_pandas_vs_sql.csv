@@ -1,3 +1,0 @@
-approach,seconds,peak_python_mb,results_match
-Pandas groupby,0.05560469999909401,2.358706474304199,True
-SQLite GROUP BY,0.11175460001686588,0.010320663452148438,True

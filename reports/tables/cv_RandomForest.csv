@@ -1,5 +1,0 @@
-params,mean_test_ap,std_test_ap,mean_test_roc,mean_fit_time,rank_test_ap
-"{'model__min_samples_leaf': 10, 'model__max_features': 'sqrt', 'model__max_depth': None, 'model__class_weight': None}",0.22023851837700348,0.0026228477321497586,0.6694169937717396,76.55430277188619,1
-"{'model__min_samples_leaf': 10, 'model__max_features': 'sqrt', 'model__max_depth': 16, 'model__class_weight': 'balanced_subsample'}",0.21085169118570912,0.0035823988015165034,0.6678170552987247,51.83485738436381,4
-"{'model__min_samples_leaf': 10, 'model__max_features': 'sqrt', 'model__max_depth': 10, 'model__class_weight': None}",0.21886502706975466,0.002969057451527547,0.6680670201780119,18.17160987854004,2
-"{'model__min_samples_leaf': 10, 'model__max_features': 0.5, 'model__max_depth': 16, 'model__class_weight': 'balanced_subsample'}",0.21841638254009288,0.006777349040044979,0.6643037414599977,242.85073590278625,3
