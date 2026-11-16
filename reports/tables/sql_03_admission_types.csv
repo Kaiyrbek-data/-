@@ -1,9 +1,0 @@
-code,description,encounters,readmission_pct
-1,Emergency,31354,11.96
-3,Elective,11163,10.46
-2,Urgent,11102,11.5
-6,NULL,3132,11.08
-5,Not Available,2776,10.63
-8,Not Mapped,188,9.57
-7,Trauma Center,14,0.0
-4,Newborn,6,16.67

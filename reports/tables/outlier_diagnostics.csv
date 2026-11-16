@@ -1,9 +1,0 @@
-,q1,q3,iqr,outside_pct,maximum,note
-time_in_hospital,2.0,6.0,4.0,2.094249602410647,14,Diagnostic only
-num_lab_procedures,31.0,57.0,26.0,0.10546580731564409,132,Diagnostic only
-num_procedures,0.0,2.0,2.0,4.744287268770402,6,Diagnostic only
-num_medications,10.0,20.0,10.0,2.4876538043023353,81,Diagnostic only
-number_outpatient,0.0,0.0,0.0,16.41081443040094,40,IQR=0; do not auto-delete
-number_emergency,0.0,0.0,0.0,11.343433497949276,76,IQR=0; do not auto-delete
-number_inpatient,0.0,1.0,1.0,6.945676738930276,16,Diagnostic only
-number_diagnoses,6.0,9.0,3.0,0.27454591110739096,16,Diagnostic only
