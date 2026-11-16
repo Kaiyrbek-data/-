@@ -409,7 +409,7 @@ def load_model() -> dict:
     """Загрузить сохранённую модель вместе с порогом и списком признаков."""
     if not config.MODEL_PATH.exists():
         raise FileNotFoundError(
-            f"Модель не найдена: {config.MODEL_PATH}. Сначала обучите её (пункт 4, режим 2)."
+            f"Модель не найдена: {config.MODEL_PATH}. Сначала обучите её: пункт 6 меню, режим 2."
         )
     return joblib.load(config.MODEL_PATH)
 
