@@ -1,16 +1,12 @@
-__pycache__/
-*.py[cod]
+# Окружение и кэш
 .venv/
 venv/
+__pycache__/
+*.pyc
 .ipynb_checkpoints/
-.pytest_cache/
-_backup/
-work/
-release/
-data/
-logs/
 .env
-.env.*
-*.zip
-!diabetes+130-us+hospitals+for+years+1999-2008.zip
-reports/tables/false_negative_examples.csv
+
+# Файлы, которые создаёт программа
+data/clean.parquet
+data/readmission.db
+exports/
