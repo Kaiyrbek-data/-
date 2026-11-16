@@ -134,6 +134,33 @@ examples/patient.json   редактируемый ввод без IDs и цел
 
 EDA.ipynb, SQL_analysis.ipynb и Model_results.ipynb содержат выполненные ячейки. Подробные решения по всем 50 столбцам — reports/EDA_detailed_conclusions.md.
 
+## Пошаговое обучение в Jupyter
+
+[`Model_training_detailed.ipynb`](Model_training_detailed.ipynb) — подробный разбор
+с реальным обучением Logistic Regression и LightGBM, а не только просмотром
+старых метрик. В нём 21 раздел: разбиение пациентов, пропуски, группировка ICD-9,
+категории и one-hot, стандартизация, Pipeline, Dummy baseline, групповая CV,
+RandomizedSearchCV, сравнение до/после подбора, калибровка, пороги, ROC/PR,
+матрица ошибок, bootstrap по пациентам, важность признаков и разбор ошибок.
+
+Откройте файл в VS Code/Jupyter, выберите окружение проекта и нажмите
+**Restart Kernel and Run All**. Используются все исходные данные; запуск обучения
+может занять несколько минут или дольше. Для просмотра готовых таблиц и графиков
+запускать повторное обучение не требуется.
+
+```powershell
+python scripts/execute_training_notebook.py
+```
+
+Результаты нового эксперимента записываются отдельно в
+`reports/model_training_detailed/`, модель — в
+`artifacts/notebook_training/detailed_model.joblib`. Модель сайта и прежние отчёты
+не перезаписываются. Больший бюджет поиска включается через `EXTENDED_SEARCH=True`
+в первой кодовой ячейке и не гарантирует улучшения.
+
+Пересоздать исходные ячейки без outputs: `python scripts/build_training_notebook.py`.
+Обычный `scripts/execute_notebooks.py` не запускает этот длительный эксперимент.
+
 ## Отчёт и презентация
 
 reports/Project_report.pdf — письменный отчёт. reports/Defense_slides.pdf — презентация. Редактируемая версия презентации сохранена также в Spaces.
