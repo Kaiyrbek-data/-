@@ -1,5 +1,4 @@
 """База SQLite, подготовка данных для поиска и готовые SQL-запросы."""
-import csv
 import re
 import sqlite3
 
@@ -27,66 +26,13 @@ MEDICATIONS = [
 ]
 
 
-def _mapping_from_csv() -> dict:
-    """Прочитать три справочника, разделённые пустыми строками одного CSV."""
-    blocks = {}
-    current = None
-    with config.MAPPING_CSV.open(encoding='utf-8-sig', newline='') as stream:
-        for row in csv.reader(stream):
-            if not row or not any(cell.strip() for cell in row):
-                current = None
-            elif row[0].strip() in LOOKUPS.values():
-                current = row[0].strip()
-                blocks[current] = []
-            elif current:
-                description = row[1].strip()
-                if description in {'NULL', 'Not Mapped', 'Not Available', 'Unknown/Invalid'}:
-                    description = 'Unknown'
-                blocks[current].append((int(row[0]), description))
-    return {key: pd.DataFrame(rows, columns=['id', 'description'])
-            for key, rows in blocks.items()}
-
-
-def _diagnosis_group(code) -> str:
-    """Сгруппировать ICD-9 для автономного создания поисковой базы из CSV."""
-    if pd.isna(code):
-        return 'Missing'
-    try:
-        value = float(code)
-    except (TypeError, ValueError):
-        return 'Other'
-    if 250 <= value < 251:
-        return 'Diabetes'
-    for low, high, extra, name in [
-        (390, 460, 785, 'Circulatory'), (460, 520, 786, 'Respiratory'),
-        (520, 580, 787, 'Digestive'), (800, 1000, None, 'Injury'),
-        (710, 740, None, 'Musculoskeletal'), (580, 630, 788, 'Genitourinary'),
-        (140, 240, None, 'Neoplasms'),
-    ]:
-        if low <= value < high or (extra is not None and extra <= value < extra + 1):
-            return name
-    return 'Other'
-
-
 def prepare_database() -> dict:
-    """Создать поисковую базу из исходных CSV, не затрагивая данные для модели."""
-    for path in (config.RAW_CSV, config.MAPPING_CSV):
-        if not path.is_file():
-            raise FileNotFoundError(f'Файл данных не найден: {path}. Положите его в data/.')
-    df = pd.read_csv(config.RAW_CSV, na_values='?', keep_default_na=False, low_memory=False)
-    # Исключаем выписки «умер/хоспис»: они не относятся к группе риска возврата.
-    df = df.loc[~df.discharge_disposition_id.isin(config.EXPIRED_OR_HOSPICE)
-                & df.gender.ne('Unknown/Invalid')].copy()
-    df['readmit_30'] = df.readmitted.eq('<30').astype(int)
-    df['age_num'] = pd.to_numeric(df.age.str.extract(r'\[(\d+)-', expand=False)) + 5
-    df['total_prior_visits'] = df[['number_outpatient', 'number_emergency', 'number_inpatient']].sum(axis=1)
-    for position in (1, 2, 3):
-        df[f'diag_{position}_group'] = df[f'diag_{position}'].map(_diagnosis_group)
-    for column in ('race', 'payer_code', 'medical_specialty'):
-        df[column] = df[column].fillna('Unknown')
-    for column in ('A1Cresult', 'max_glu_serum'):
-        df[column] = df[column].replace('None', 'NotMeasured').fillna('NotMeasured')
-    return build_database(df, _mapping_from_csv())
+    """Создать базу из исходных CSV по тем же правилам очистки, что и данные для модели."""
+    # Очистка одна на весь проект (src/preprocessing.py): база и модель видят
+    # одинаковые строки, группы диагнозов и целевую переменную.
+    from src import data_loader, preprocessing
+    clean = preprocessing.clean(data_loader.load_raw())
+    return build_database(clean, data_loader.load_mapping())
 
 
 def build_database(df, mapping: dict) -> dict:
