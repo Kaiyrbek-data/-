@@ -10,33 +10,60 @@
 
 ## Запуск
 
-Нужен Python 3.11 или новее.
+Рекомендуется **Python 3.11**. Зависимости закреплены в `requirements.txt`, включая версию scikit-learn для сохранённой модели.
 
-```bash
-python -m venv .venv
-```
+Скачайте ZIP через **Code / Download ZIP** и распакуйте его либо клонируйте репозиторий. Откройте терминал в папке проекта, где находятся `main.py` и `requirements.txt`.
+
+### Windows (PowerShell)
+
+Активация окружения не обязательна: все команды ниже используют его Python напрямую.
 
 ```powershell
-.venv\Scripts\activate
-```
-
-```bash
-pip install -r requirements.txt
+py -3.11 -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
 Меню в терминале:
 
-```bash
-python main.py
+```powershell
+.\.venv\Scripts\python.exe main.py
 ```
 
 Сайт:
 
-```bash
-streamlit run app.py
+```powershell
+.\.venv\Scripts\python.exe -m streamlit run app.py
 ```
 
 Обученная модель уже лежит в `models/`, поэтому прогноз работает сразу. База SQLite создаётся сама при первом запросе.
+
+Ноутбуки открываются командой `.\.venv\Scripts\python.exe -m notebook`; выполняйте ячейки сверху вниз. Ноутбук `03_models.ipynb` заново обучает и сохраняет модель, поэтому его результаты могут заменить текущие файлы в `models/`.
+
+### macOS / Linux
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python main.py
+# Сайт: .venv/bin/python -m streamlit run app.py
+```
+
+### Проверка установки
+
+```powershell
+.\.venv\Scripts\python.exe -m pip check
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
+
+Проверка читает исходные данные, создаёт временную SQLite, выполняет все восемь запросов, проверяет поиск, экспорт CSV, сохранённую модель, терминальный ввод и страницы Streamlit. Для неё не нужно заново обучать модель. Временная база удаляется после проверки; первый запуск меню при необходимости создаст рабочую базу в `data/`.
+
+## Материалы для защиты
+
+- [Актуальный отчёт PDF](docs/report.pdf) — 19 страниц, включая индивидуальный вклад участников.
+- [Презентация PowerPoint](docs/presentation.pptx) — 26 слайдов с заметками для выступления.
+- [Презентация PDF](docs/presentation.pdf) — версия для просмотра без PowerPoint.
+
+Для защиты используйте эти файлы. `docs/report.docx` сохранён как прежняя редактируемая версия и не содержит последних дополнений PDF.
 
 ## Структура
 
