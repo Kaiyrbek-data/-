@@ -1,15 +1,19 @@
 """Relational SQLite storage with repeatable project-table ingestion."""
+
 import sqlite3
 from contextlib import closing
 import pandas as pd
 from .config import *
 from .features import icd9_group
 
+
 def connect(path=DB_PATH):
+    """Открыть соединение с SQLite и включить проверку внешних ключей."""
     path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path, timeout=60)
     connection.execute('PRAGMA foreign_keys=ON')
     return connection
+
 
 def import_database(raw, mappings, parts):
     """Rebuild only the project's source tables, retaining experiment history."""
@@ -47,34 +51,62 @@ def import_database(raw, mappings, parts):
     '''
     with closing(connect()) as connection:
         connection.execute('BEGIN')
-        for table in ['split_assignments', 'encounter_medications', 'diagnoses', 'drugs',
-                      'encounters', 'patients', 'admission_types', 'discharge_dispositions', 'admission_sources']:
+        for table in [
+            'split_assignments',
+            'encounter_medications',
+            'diagnoses',
+            'drugs',
+            'encounters',
+            'patients',
+            'admission_types',
+            'discharge_dispositions',
+            'admission_sources',
+        ]:
             connection.execute(f'DROP TABLE IF EXISTS "{table}"')
         connection.executescript(schema)
-        raw[['patient_nbr']].drop_duplicates().to_sql('patients', connection, if_exists='append', index=False)
-        for column, table in zip(CODE_COLS, ['admission_types','discharge_dispositions','admission_sources']):
-            connection.executemany(f'INSERT INTO {table}(code,description) VALUES (?,?)', mappings[column].items())
+        raw[['patient_nbr']].drop_duplicates().to_sql(
+            'patients', connection, if_exists='append', index=False
+        )
+        for column, table in zip(
+            CODE_COLS, ['admission_types', 'discharge_dispositions', 'admission_sources']
+        ):
+            connection.executemany(
+                f'INSERT INTO {table}(code,description) VALUES (?,?)', mappings[column].items()
+            )
         encounters = raw[["encounter_id", "patient_nbr"] + other_cols].copy()
         encounters[TARGET] = raw.readmitted.eq('<30').astype(int)
         encounters.to_sql('encounters', connection, if_exists='append', index=False, chunksize=3000)
-        diagnoses = raw[['encounter_id'] + DIAG_COLS].melt(id_vars='encounter_id', var_name='position', value_name='icd9')
+        diagnoses = raw[['encounter_id'] + DIAG_COLS].melt(
+            id_vars='encounter_id', var_name='position', value_name='icd9'
+        )
         diagnoses['position'] = diagnoses.position.str[-1].astype(int)
         diagnoses['diagnosis_group'] = diagnoses.icd9.map(icd9_group)
         diagnoses.to_sql('diagnoses', connection, if_exists='append', index=False, chunksize=3000)
-        connection.executemany('INSERT INTO drugs(drug_id,name) VALUES (?,?)', enumerate(DRUG_COLS, start=1))
-        medication = raw[['encounter_id'] + DRUG_COLS].melt(id_vars='encounter_id', var_name='drug', value_name='status')
+        connection.executemany(
+            'INSERT INTO drugs(drug_id,name) VALUES (?,?)', enumerate(DRUG_COLS, start=1)
+        )
+        medication = raw[['encounter_id'] + DRUG_COLS].melt(
+            id_vars='encounter_id', var_name='drug', value_name='status'
+        )
         medication = medication[medication.status.ne('No') & medication.status.notna()].copy()
-        medication['drug_id'] = medication.drug.map({name:i for i,name in enumerate(DRUG_COLS,start=1)})
-        medication[['encounter_id','drug_id','status']].to_sql('encounter_medications', connection,
-                                                           if_exists='append', index=False, chunksize=3000)
-        manifest = pd.concat([frame[['encounter_id']].assign(split=name) for name,frame in parts.items()])
+        medication['drug_id'] = medication.drug.map(
+            {name: i for i, name in enumerate(DRUG_COLS, start=1)}
+        )
+        medication[['encounter_id', 'drug_id', 'status']].to_sql(
+            'encounter_medications', connection, if_exists='append', index=False, chunksize=3000
+        )
+        manifest = pd.concat(
+            [frame[['encounter_id']].assign(split=name) for name, frame in parts.items()]
+        )
         manifest.to_sql('split_assignments', connection, if_exists='append', index=False)
         violations = connection.execute('PRAGMA foreign_key_check').fetchall()
         if violations:
             raise ValueError(f'Foreign key violations: {violations[:3]}')
         connection.commit()
 
+
 def load_sql_queries():
+    """Прочитать запросы из sql/analysis.sql в словарь {имя: текст SQL}."""
     text = (ROOT / 'sql' / 'analysis.sql').read_text(encoding='utf-8-sig')
     queries = {}
     for section in text.split('-- QUERY: ')[1:]:
@@ -82,7 +114,9 @@ def load_sql_queries():
         queries[title.strip()] = sql.strip().rstrip(';')
     return queries
 
+
 def run_sql_analysis():
+    """Выполнить все запросы, вернуть результаты как DataFrame и сохранить в CSV."""
     results = {}
     with closing(connect()) as connection:
         for name, query in load_sql_queries().items():
@@ -91,8 +125,14 @@ def run_sql_analysis():
             results[name] = result
     return results
 
+
 def save_experiments(run_id, metrics, predictions):
+    """Дописать метрики и прогнозы запуска в таблицы experiments и predictions."""
     with closing(connect()) as connection:
-        metrics.assign(run_id=run_id).to_sql('experiments', connection, if_exists='append', index=False)
-        predictions.assign(run_id=run_id).to_sql('predictions', connection, if_exists='append', index=False)
+        metrics.assign(run_id=run_id).to_sql(
+            'experiments', connection, if_exists='append', index=False
+        )
+        predictions.assign(run_id=run_id).to_sql(
+            'predictions', connection, if_exists='append', index=False
+        )
         connection.commit()
